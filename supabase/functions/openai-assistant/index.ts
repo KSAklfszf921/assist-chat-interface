@@ -8,6 +8,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Map internal error codes to safe public messages
+const PUBLIC_ERROR_MAP: Record<string, string> = {
+  ERR_ASSISTANT_NOT_CONFIGURED: 'Service configuration error. Please contact support.',
+  ERR_SERVICE_CONFIG: 'Service temporarily unavailable. Please try again later.',
+  ERR_THREAD_CREATE: 'Unable to start conversation. Please try again.',
+  ERR_MESSAGE_SEND: 'Unable to process message. Please try again.',
+  ERR_ASSISTANT_RUN: 'Unable to generate response. Please try again.',
+  ERR_INTERNAL: 'An unexpected error occurred. Please try again.',
+};
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -104,9 +114,10 @@ serve(async (req) => {
       .single();
 
     if (assistantError || !assistantData) {
-      console.error('[ASSISTANT_CONFIG]', { userId: user.id, timestamp: new Date().toISOString(), error: assistantError?.message });
+      const errorCode = 'ERR_ASSISTANT_NOT_CONFIGURED';
+      console.error('[ASSISTANT_CONFIG]', { userId: user.id, timestamp: new Date().toISOString(), error: assistantError?.message, code: errorCode });
       return new Response(
-        JSON.stringify({ error: 'Service not configured. Please contact support.', code: 'ERR_ASSISTANT_NOT_CONFIGURED' }),
+        JSON.stringify({ error: PUBLIC_ERROR_MAP[errorCode] }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -115,9 +126,10 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
     if (!OPENAI_API_KEY) {
-      console.error('[SERVICE_CONFIG]', { userId: user.id, timestamp: new Date().toISOString(), issue: 'Missing API key' });
+      const errorCode = 'ERR_SERVICE_CONFIG';
+      console.error('[SERVICE_CONFIG]', { userId: user.id, timestamp: new Date().toISOString(), issue: 'Missing API key', code: errorCode });
       return new Response(
-        JSON.stringify({ error: 'Service temporarily unavailable', code: 'ERR_SERVICE_CONFIG' }),
+        JSON.stringify({ error: PUBLIC_ERROR_MAP[errorCode] }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -154,9 +166,10 @@ serve(async (req) => {
       });
 
       if (!threadResponse.ok) {
-        console.error('[THREAD_CREATE]', { userId: user.id, timestamp: new Date().toISOString(), status: threadResponse.status });
+        const errorCode = 'ERR_THREAD_CREATE';
+        console.error('[THREAD_CREATE]', { userId: user.id, timestamp: new Date().toISOString(), status: threadResponse.status, code: errorCode });
         return new Response(
-          JSON.stringify({ error: 'Unable to start conversation', code: 'ERR_THREAD_CREATE' }),
+          JSON.stringify({ error: PUBLIC_ERROR_MAP[errorCode] }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -298,9 +311,10 @@ serve(async (req) => {
     });
 
     if (!messageResponse.ok) {
-      console.error('[MESSAGE_SEND]', { userId: user.id, threadId: currentThreadId, timestamp: new Date().toISOString(), status: messageResponse.status });
+      const errorCode = 'ERR_MESSAGE_SEND';
+      console.error('[MESSAGE_SEND]', { userId: user.id, threadId: currentThreadId, timestamp: new Date().toISOString(), status: messageResponse.status, code: errorCode });
       return new Response(
-        JSON.stringify({ error: 'Unable to process message', code: 'ERR_MESSAGE_SEND' }),
+        JSON.stringify({ error: PUBLIC_ERROR_MAP[errorCode] }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -349,9 +363,10 @@ serve(async (req) => {
     });
 
     if (!runResponse.ok) {
-      console.error('[ASSISTANT_RUN]', { userId: user.id, threadId: currentThreadId, timestamp: new Date().toISOString(), status: runResponse.status });
+      const errorCode = 'ERR_ASSISTANT_RUN';
+      console.error('[ASSISTANT_RUN]', { userId: user.id, threadId: currentThreadId, timestamp: new Date().toISOString(), status: runResponse.status, code: errorCode });
       return new Response(
-        JSON.stringify({ error: 'Unable to generate response', code: 'ERR_ASSISTANT_RUN' }),
+        JSON.stringify({ error: PUBLIC_ERROR_MAP[errorCode] }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -370,9 +385,10 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('[FUNCTION_ERROR]', { timestamp: new Date().toISOString(), error: error instanceof Error ? error.message : 'Unknown error' });
+    const errorCode = 'ERR_INTERNAL';
+    console.error('[FUNCTION_ERROR]', { timestamp: new Date().toISOString(), error: error instanceof Error ? error.message : 'Unknown error', code: errorCode });
     return new Response(
-      JSON.stringify({ error: 'An unexpected error occurred. Please try again.', code: 'ERR_INTERNAL' }),
+      JSON.stringify({ error: PUBLIC_ERROR_MAP[errorCode] }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
