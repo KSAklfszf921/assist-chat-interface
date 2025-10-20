@@ -68,6 +68,8 @@ export const useAssistantChat = () => {
         const decoder = new TextDecoder();
         let buffer = '';
         let assistantMessage = '';
+        let currentEvent = '';
+        let isFirstDelta = true;
 
         if (!reader) {
           throw new Error('No response body');
@@ -83,40 +85,63 @@ export const useAssistantChat = () => {
           buffer = lines.pop() || '';
 
           for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
+            // Handle SSE format: 'event:' and 'data:' are on separate lines
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              const data = line.slice(6).trim();
               
               if (data === '[DONE]') {
                 break;
               }
 
               try {
-                const event = JSON.parse(data);
+                const eventData = JSON.parse(data);
                 
-                // Handle text deltas from OpenAI
-                if (event.type === 'response.text.delta') {
-                  assistantMessage += event.delta || '';
-                } else if (event.type === 'response.content_part.added') {
-                  // Start of new content part
-                  continue;
-                } else if (event.type === 'response.done') {
-                  // Response complete
-                  break;
-                } else if (event.error) {
-                  throw new Error(event.error);
+                // Handle OpenAI Assistants API v2 events
+                if (currentEvent === 'thread.message.delta') {
+                  // Text comes in delta.content[0].text.value
+                  const content = eventData.delta?.content;
+                  if (content && content[0]?.type === 'text') {
+                    const textValue = content[0].text?.value;
+                    if (textValue) {
+                      assistantMessage += textValue;
+                      
+                      // Update UI in real-time
+                      setMessages((prev) => {
+                        if (isFirstDelta) {
+                          isFirstDelta = false;
+                          return [...prev, { role: "assistant", content: textValue }];
+                        } else {
+                          const updated = [...prev];
+                          updated[updated.length - 1] = {
+                            role: "assistant",
+                            content: assistantMessage
+                          };
+                          return updated;
+                        }
+                      });
+                    }
+                  }
+                } else if (currentEvent === 'thread.message.completed') {
+                  // Fallback: Get complete message if we missed deltas
+                  const content = eventData.content;
+                  if (content && content[0]?.type === 'text') {
+                    assistantMessage = content[0].text.value;
+                  }
+                } else if (currentEvent === 'thread.run.failed') {
+                  const lastError = eventData.last_error;
+                  throw new Error(`Assistant run failed: ${lastError?.message || 'Unknown error'}`);
+                } else if (currentEvent === 'thread.run.cancelled') {
+                  throw new Error('Assistant run was cancelled');
+                } else if (currentEvent === 'thread.run.expired') {
+                  throw new Error('Assistant run expired');
                 }
               } catch (parseError) {
-                console.error('Error parsing SSE data:', parseError);
+                console.error('Error parsing SSE data:', parseError, 'Event:', currentEvent, 'Line:', line);
               }
             }
           }
-        }
-
-        if (assistantMessage) {
-          setMessages((prev) => [
-            ...prev,
-            { role: "assistant", content: assistantMessage },
-          ]);
         }
 
       } catch (error) {
