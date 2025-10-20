@@ -20,7 +20,6 @@ export type Database = {
           created_at: string
           custom_instructions: string | null
           enable_function_calling: boolean
-          enable_web_search: boolean
           id: string
           max_tokens: number | null
           model: string | null
@@ -33,7 +32,6 @@ export type Database = {
           created_at?: string
           custom_instructions?: string | null
           enable_function_calling?: boolean
-          enable_web_search?: boolean
           id?: string
           max_tokens?: number | null
           model?: string | null
@@ -46,7 +44,6 @@ export type Database = {
           created_at?: string
           custom_instructions?: string | null
           enable_function_calling?: boolean
-          enable_web_search?: boolean
           id?: string
           max_tokens?: number | null
           model?: string | null

@@ -66,13 +66,18 @@ const Index = () => {
     return () => subscription.unsubscribe();
   }, [navigate, loadConversations]);
 
-  // Auto-create first conversation when assistant is selected for the first time
+  // Auto-create first conversation when assistant is selected and no active conversation exists
   useEffect(() => {
-    if (activeAssistant && user && conversations.length === 0 && !isCheckingAuth) {
-      console.log('Creating initial conversation for assistant:', activeAssistant.assistant_id);
-      handleCreateConversation(activeAssistant.assistant_id);
+    if (activeAssistant && user && !activeConversationId && !isCheckingAuth) {
+      const existingConv = conversations.find(c => c.assistant_id === activeAssistant.assistant_id && !c.is_deleted);
+      if (!existingConv) {
+        console.log('Creating initial conversation for assistant:', activeAssistant.assistant_id);
+        handleCreateConversation(activeAssistant.assistant_id);
+      } else {
+        setActiveConversation(existingConv.id);
+      }
     }
-  }, [activeAssistant, user, conversations.length, isCheckingAuth]);
+  }, [activeAssistant, user, activeConversationId, conversations, isCheckingAuth]);
 
   // Sync threadId when active conversation changes
   useEffect(() => {

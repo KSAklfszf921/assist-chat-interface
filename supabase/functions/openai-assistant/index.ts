@@ -126,7 +126,6 @@ serve(async (req) => {
 
     const settings = settingsData || {
       enable_function_calling: true,
-      enable_web_search: false,
       temperature: null,
       max_tokens: null,
       custom_instructions: null,
@@ -134,7 +133,6 @@ serve(async (req) => {
 
     console.log('Processing authenticated request with settings:', {
       function_calling: settings.enable_function_calling,
-      web_search: settings.enable_web_search,
     });
 
     // Create or use existing thread

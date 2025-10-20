@@ -7,7 +7,6 @@ export interface AssistantSettings {
   user_id: string;
   assistant_id: string;
   enable_function_calling: boolean;
-  enable_web_search: boolean;
   model: string | null;
   temperature: number | null;
   max_tokens: number | null;
@@ -52,7 +51,6 @@ export const useAssistantSettings = (assistantId: string | null) => {
             user_id: session.session.user.id,
             assistant_id: asstId,
             enable_function_calling: true,
-            enable_web_search: false,
           })
           .select()
           .single();

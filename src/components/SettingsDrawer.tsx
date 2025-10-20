@@ -81,27 +81,6 @@ export const SettingsDrawer = ({
 
             <Separator />
 
-            {/* Web Search */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="web-search">Web Search</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Aktivera webbsökning för aktuell information
-                  </p>
-                </div>
-                <Switch
-                  id="web-search"
-                  checked={settings.enable_web_search}
-                  onCheckedChange={(checked) =>
-                    updateSetting("enable_web_search", checked)
-                  }
-                />
-              </div>
-            </div>
-
-            <Separator />
-
             {/* Temperature */}
             <div className="space-y-3">
               <div className="space-y-2">

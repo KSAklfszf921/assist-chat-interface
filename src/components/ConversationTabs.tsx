@@ -24,15 +24,13 @@ export const ConversationTabs = ({
     return title.length > maxLength ? title.slice(0, maxLength) + "..." : title;
   };
 
-  if (conversations.length === 0) {
-    return (
-      <div className="border-b px-4 py-2">
-        <Button onClick={onNewConversation} size="sm" variant="outline">
-          <Plus className="h-4 w-4 mr-2" />
-          Ny konversation
-        </Button>
-      </div>
-    );
+  // Only show conversations that are active or have been messaged
+  const activeConversations = conversations.filter(c => 
+    c.id === activeConversationId || c.last_message_at
+  );
+
+  if (activeConversations.length === 0) {
+    return null;
   }
 
   return (
@@ -41,7 +39,7 @@ export const ConversationTabs = ({
         <Tabs value={activeConversationId || ""} onValueChange={onTabChange}>
           <div className="flex items-center gap-2 px-4">
             <TabsList className="h-12 flex-1">
-              {conversations.map((conv) => (
+              {activeConversations.map((conv) => (
                 <TabsTrigger
                   key={conv.id}
                   value={conv.id}
