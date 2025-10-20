@@ -107,11 +107,12 @@ serve(async (req) => {
 
     const { message, threadId } = validationResult.data;
 
-    // Get user's assistant from database
+    // Get user's active assistant from database
     const { data: assistantData, error: assistantError } = await supabase
       .from('user_assistants')
       .select('assistant_id')
       .eq('user_id', user.id)
+      .eq('is_active', true)
       .single();
 
     if (assistantError || !assistantData) {

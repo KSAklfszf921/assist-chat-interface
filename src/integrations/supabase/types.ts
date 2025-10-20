@@ -43,6 +43,7 @@ export type Database = {
           assistant_id: string
           created_at: string | null
           id: string
+          is_active: boolean | null
           name: string | null
           updated_at: string | null
           user_id: string
@@ -51,6 +52,7 @@ export type Database = {
           assistant_id: string
           created_at?: string | null
           id?: string
+          is_active?: boolean | null
           name?: string | null
           updated_at?: string | null
           user_id: string
@@ -59,6 +61,7 @@ export type Database = {
           assistant_id?: string
           created_at?: string | null
           id?: string
+          is_active?: boolean | null
           name?: string | null
           updated_at?: string | null
           user_id?: string

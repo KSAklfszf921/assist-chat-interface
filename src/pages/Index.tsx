@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
-import { AssistantConfig } from "@/components/AssistantConfig";
+import { AssistantSelector } from "@/components/AssistantSelector";
 import { useAssistantChat } from "@/hooks/useAssistantChat";
 import { useUserAssistant } from "@/hooks/useUserAssistant";
 import { supabase } from "@/integrations/supabase/client";
@@ -18,9 +18,20 @@ const Index = () => {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
-  const { assistant, isLoading: isLoadingAssistant } = useUserAssistant();
+  const { activeAssistant, isLoading: isLoadingAssistant } = useUserAssistant();
   const { messages, isLoading, sendMessage, clearChat } = useAssistantChat();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const prevAssistantRef = useRef<string | null>(null);
+
+  // Auto-clear chat when switching assistants
+  useEffect(() => {
+    if (activeAssistant && prevAssistantRef.current !== null && prevAssistantRef.current !== activeAssistant.id) {
+      clearChat();
+    }
+    if (activeAssistant) {
+      prevAssistantRef.current = activeAssistant.id;
+    }
+  }, [activeAssistant, clearChat]);
 
   // Session management
   useEffect(() => {
@@ -94,14 +105,10 @@ const Index = () => {
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
               <Sparkles className="h-5 w-5 text-white" />
             </div>
-            <div>
-              <h1 className="text-lg font-semibold">OpenAI Assistant</h1>
-              <p className="text-xs text-muted-foreground">
-                {isLoadingAssistant ? "Laddar..." : assistant ? `${assistant.name || assistant.assistant_id.substring(0, 15)}...` : "Ingen assistent konfigurerad"}
-              </p>
-            </div>
+            <h1 className="text-lg font-semibold">OpenAI Assistant</h1>
           </div>
           <div className="flex items-center gap-2">
+            <AssistantSelector />
             <Button
               variant="outline"
               size="icon"
@@ -110,7 +117,6 @@ const Index = () => {
             >
               <Trash2 className="h-4 w-4" />
             </Button>
-            <AssistantConfig />
             <Button
               variant="outline"
               size="icon"
@@ -134,10 +140,15 @@ const Index = () => {
                   </div>
                   <h2 className="text-2xl font-semibold">Välkommen!</h2>
                   <p className="text-muted-foreground max-w-md">
-                    {assistant
-                      ? "Börja chatta med din OpenAI Assistant genom att skriva ett meddelande nedan."
-                      : "Konfigurera din Assistant ID genom att klicka på inställningsikonen ovan."}
+                    {activeAssistant
+                      ? `Börja chatta med ${activeAssistant.name} genom att skriva ett meddelande nedan.`
+                      : "Laddar assistenter..."}
                   </p>
+                  {activeAssistant && (
+                    <p className="text-sm text-muted-foreground">
+                      Byt assistent när som helst genom att använda väljaren ovan.
+                    </p>
+                  )}
                 </div>
               </div>
             ) : (
@@ -170,7 +181,7 @@ const Index = () => {
       {/* Input Area */}
       <div className="border-t bg-card/50 backdrop-blur-sm">
         <div className="container mx-auto max-w-4xl p-4">
-          <ChatInput onSendMessage={sendMessage} disabled={isLoading || !assistant} />
+          <ChatInput onSendMessage={sendMessage} disabled={isLoading || !activeAssistant} />
         </div>
       </div>
     </div>
