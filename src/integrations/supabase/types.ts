@@ -73,7 +73,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_and_increment_rate_limit: {
+        Args: {
+          _endpoint: string
+          _max_requests: number
+          _user_id: string
+          _window_start: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

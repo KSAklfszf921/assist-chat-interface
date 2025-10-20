@@ -33,14 +33,14 @@ serve(async (req) => {
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
     if (authError || !user) {
-      console.error('Authentication failed');
+      console.error('[AUTH]', { timestamp: new Date().toISOString(), error: authError?.message });
       return new Response(
-        JSON.stringify({ error: 'Authentication failed' }),
+        JSON.stringify({ error: 'Authentication required' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Rate limiting: 20 requests per minute per user
+    // Rate limiting: 20 requests per minute per user (atomic check)
     const rateLimitWindow = 60000; // 1 minute in ms
     const rateLimitMax = 20;
     const now = new Date();
@@ -52,40 +52,21 @@ serve(async (req) => {
       .delete()
       .lt('window_start', windowStart.toISOString());
 
-    // Check current rate
-    const { data: rateLimitData } = await supabase
-      .from('rate_limits')
-      .select('request_count')
-      .eq('user_id', user.id)
-      .eq('endpoint', 'openai-assistant')
-      .gte('window_start', windowStart.toISOString())
-      .single();
+    // Use atomic function to check and increment rate limit
+    const { data: isAllowed, error: rateLimitError } = await supabase
+      .rpc('check_and_increment_rate_limit', {
+        _user_id: user.id,
+        _endpoint: 'openai-assistant',
+        _window_start: windowStart.toISOString(),
+        _max_requests: rateLimitMax
+      });
 
-    if (rateLimitData && rateLimitData.request_count >= rateLimitMax) {
-      console.error('Rate limit exceeded');
+    if (rateLimitError || !isAllowed) {
+      console.error('[RATE_LIMIT]', { userId: user.id, timestamp: new Date().toISOString() });
       return new Response(
-        JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
+        JSON.stringify({ error: 'Too many requests. Please try again later.' }),
         { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
-    }
-
-    // Update rate limit counter
-    if (rateLimitData) {
-      await supabase
-        .from('rate_limits')
-        .update({ request_count: rateLimitData.request_count + 1 })
-        .eq('user_id', user.id)
-        .eq('endpoint', 'openai-assistant')
-        .gte('window_start', windowStart.toISOString());
-    } else {
-      await supabase
-        .from('rate_limits')
-        .insert({
-          user_id: user.id,
-          endpoint: 'openai-assistant',
-          request_count: 1,
-          window_start: now.toISOString()
-        });
     }
 
     // Validate input schema
@@ -98,12 +79,9 @@ serve(async (req) => {
     const validationResult = inputSchema.safeParse(body);
     
     if (!validationResult.success) {
-      console.error('Input validation failed:', validationResult.error);
+      console.error('[VALIDATION]', { userId: user.id, timestamp: new Date().toISOString(), errorCount: validationResult.error.errors.length });
       return new Response(
-        JSON.stringify({ 
-          error: 'Invalid input parameters',
-          details: validationResult.error.errors 
-        }),
+        JSON.stringify({ error: 'Invalid request format' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -119,9 +97,9 @@ serve(async (req) => {
       .single();
 
     if (assistantError || !assistantData) {
-      console.error('No assistant configured');
+      console.error('[ASSISTANT_CONFIG]', { userId: user.id, timestamp: new Date().toISOString(), error: assistantError?.message });
       return new Response(
-        JSON.stringify({ error: 'No assistant configured. Please configure an assistant first.' }),
+        JSON.stringify({ error: 'Service not configured. Please contact support.', code: 'ERR_ASSISTANT_NOT_CONFIGURED' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -130,9 +108,9 @@ serve(async (req) => {
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
     if (!OPENAI_API_KEY) {
-      console.error('API key not configured');
+      console.error('[SERVICE_CONFIG]', { userId: user.id, timestamp: new Date().toISOString(), issue: 'Missing API key' });
       return new Response(
-        JSON.stringify({ error: 'Service configuration error' }),
+        JSON.stringify({ error: 'Service temporarily unavailable', code: 'ERR_SERVICE_CONFIG' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -152,9 +130,9 @@ serve(async (req) => {
       });
 
       if (!threadResponse.ok) {
-        console.error('Thread creation failed');
+        console.error('[THREAD_CREATE]', { userId: user.id, timestamp: new Date().toISOString(), status: threadResponse.status });
         return new Response(
-          JSON.stringify({ error: 'Failed to create conversation thread' }),
+          JSON.stringify({ error: 'Unable to start conversation', code: 'ERR_THREAD_CREATE' }),
           { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -179,9 +157,9 @@ serve(async (req) => {
     });
 
     if (!messageResponse.ok) {
-      console.error('Message creation failed');
+      console.error('[MESSAGE_SEND]', { userId: user.id, threadId: currentThreadId, timestamp: new Date().toISOString(), status: messageResponse.status });
       return new Response(
-        JSON.stringify({ error: 'Failed to send message' }),
+        JSON.stringify({ error: 'Unable to process message', code: 'ERR_MESSAGE_SEND' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -203,9 +181,9 @@ serve(async (req) => {
     });
 
     if (!runResponse.ok) {
-      console.error('Run creation failed');
+      console.error('[ASSISTANT_RUN]', { userId: user.id, threadId: currentThreadId, timestamp: new Date().toISOString(), status: runResponse.status });
       return new Response(
-        JSON.stringify({ error: 'Failed to start assistant response' }),
+        JSON.stringify({ error: 'Unable to generate response', code: 'ERR_ASSISTANT_RUN' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -224,9 +202,9 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Unexpected error occurred');
+    console.error('[FUNCTION_ERROR]', { timestamp: new Date().toISOString(), error: error instanceof Error ? error.message : 'Unknown error' });
     return new Response(
-      JSON.stringify({ error: 'An unexpected error occurred. Please try again.' }),
+      JSON.stringify({ error: 'An unexpected error occurred. Please try again.', code: 'ERR_INTERNAL' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

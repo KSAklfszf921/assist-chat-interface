@@ -15,6 +15,25 @@ export const useAssistantChat = () => {
 
   const sendMessage = useCallback(
     async (message: string) => {
+      // Client-side validation
+      if (!message || message.trim().length === 0) {
+        toast({
+          title: "Tomt meddelande",
+          description: "Skriv ett meddelande först.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (message.length > 4000) {
+        toast({
+          title: "Meddelandet är för långt",
+          description: "Meddelandet får inte vara längre än 4000 tecken.",
+          variant: "destructive",
+        });
+        return;
+      }
+
       setIsLoading(true);
       setMessages((prev) => [...prev, { role: "user", content: message }]);
 
@@ -39,7 +58,7 @@ export const useAssistantChat = () => {
 
         // Use fetch directly to handle SSE streaming
         const response = await fetch(
-          `https://cvskbnrxuppbarkspfld.supabase.co/functions/v1/openai-assistant`,
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/openai-assistant`,
           {
             method: 'POST',
             headers: {
