@@ -14,6 +14,119 @@ export type Database = {
   }
   public: {
     Tables: {
+      assistant_settings: {
+        Row: {
+          assistant_id: string
+          created_at: string
+          custom_instructions: string | null
+          enable_function_calling: boolean
+          enable_web_search: boolean
+          id: string
+          max_tokens: number | null
+          model: string | null
+          temperature: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          assistant_id: string
+          created_at?: string
+          custom_instructions?: string | null
+          enable_function_calling?: boolean
+          enable_web_search?: boolean
+          id?: string
+          max_tokens?: number | null
+          model?: string | null
+          temperature?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          assistant_id?: string
+          created_at?: string
+          custom_instructions?: string | null
+          enable_function_calling?: boolean
+          enable_web_search?: boolean
+          id?: string
+          max_tokens?: number | null
+          model?: string | null
+          temperature?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      chat_conversations: {
+        Row: {
+          assistant_id: string
+          created_at: string
+          id: string
+          is_deleted: boolean
+          last_message_at: string | null
+          thread_id: string | null
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          assistant_id: string
+          created_at?: string
+          id?: string
+          is_deleted?: boolean
+          last_message_at?: string | null
+          thread_id?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          assistant_id?: string
+          created_at?: string
+          id?: string
+          is_deleted?: boolean
+          last_message_at?: string | null
+          thread_id?: string | null
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      chat_messages: {
+        Row: {
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          metadata: Json | null
+          role: string
+        }
+        Insert: {
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          role: string
+        }
+        Update: {
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          metadata?: Json | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chat_conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rate_limits: {
         Row: {
           endpoint: string
