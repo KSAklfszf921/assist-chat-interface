@@ -231,99 +231,27 @@ const Index = () => {
         return;
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/openai-assistant`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          },
-          body: JSON.stringify({ 
-            message, 
-            threadId, 
-            conversationId: activeConversationId,
-            files: files || []
-          }),
-          signal: abortController.signal,
-        }
-      );
+      const isChatGPT = activeAssistant?.assistant_id === "chatgpt";
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Request failed');
-      }
-
-      const newThreadId = response.headers.get('X-Thread-Id');
-      if (newThreadId && newThreadId !== threadId) {
-        setThreadId(newThreadId);
-      }
-
-      // Parse SSE stream
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let assistantMessage = '';
-      let currentEvent = '';
-
-      if (!reader) throw new Error('No response body');
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7).trim();
-          } else if (line.startsWith('data: ')) {
-            const data = line.slice(6).trim();
-            
-            if (data === '[DONE]') break;
-
-            try {
-              const eventData = JSON.parse(data);
-              
-              if (currentEvent === 'thread.message.delta') {
-                const content = eventData.delta?.content;
-                if (content && content[0]?.type === 'text') {
-                  const textValue = content[0].text?.value;
-                  if (textValue) {
-                    assistantMessage += textValue;
-                    updateOptimisticMessage(assistantTempId, assistantMessage);
-                  }
-                }
-              } else if (currentEvent === 'thread.message.completed') {
-                const content = eventData.content;
-                if (content && content[0]?.type === 'text') {
-                  assistantMessage = content[0].text.value;
-                  updateOptimisticMessage(assistantTempId, assistantMessage);
-                }
-              } else if (currentEvent === 'thread.run.failed') {
-                const lastError = eventData.last_error;
-                throw new Error(`Assistant run failed: ${lastError?.message || 'Unknown error'}`);
-              }
-            } catch (parseError) {
-              console.error('Error parsing SSE data:', parseError);
-            }
-          }
-        }
-      }
-
-      // Save final assistant message to DB
-      if (assistantMessage) {
-        await addMessage(activeConversationId, "assistant", assistantMessage);
-        
-        // Update conversation title if it's the first message
-        const activeConv = conversations.find(c => c.id === activeConversationId);
-        if (activeConv && !activeConv.title && messages.length === 0) {
-          const title = message.slice(0, 50) + (message.length > 50 ? "..." : "");
-          await updateConversationTitle(activeConversationId, title);
-        }
+      if (isChatGPT) {
+        // Handle ChatGPT conversation
+        await handleChatGPTMessage(
+          message,
+          session,
+          activeConversationId,
+          assistantTempId,
+          abortController
+        );
+      } else {
+        // Handle OpenAI Assistant
+        await handleOpenAIAssistant(
+          message,
+          files,
+          session,
+          activeConversationId,
+          assistantTempId,
+          abortController
+        );
       }
 
     } catch (error) {
@@ -345,6 +273,212 @@ const Index = () => {
     } finally {
       clearTimeout(timeoutId);
       setIsStreamingResponse(false);
+    }
+  };
+
+  const handleChatGPTMessage = async (
+    message: string,
+    session: Session,
+    conversationId: string,
+    assistantTempId: string,
+    abortController: AbortController
+  ) => {
+    // Get conversation history
+    const conversationMessages = messages.map(msg => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    // Add current user message
+    conversationMessages.push({
+      role: "user",
+      content: message,
+    });
+
+    // Get model from settings
+    const { data: settingsData } = await supabase
+      .from("assistant_settings")
+      .select("model")
+      .eq("user_id", user!.id)
+      .eq("assistant_id", "chatgpt")
+      .maybeSingle();
+
+    const model = settingsData?.model || "gpt-5-mini-2025-08-07";
+
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chatgpt`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ 
+          messages: conversationMessages,
+          conversationId,
+          model,
+        }),
+        signal: abortController.signal,
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Request failed');
+    }
+
+    // Parse SSE stream
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let assistantMessage = '';
+
+    if (!reader) throw new Error('No response body');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          
+          if (data === '[DONE]') break;
+
+          try {
+            const eventData = JSON.parse(data);
+            const content = eventData.choices?.[0]?.delta?.content;
+            
+            if (content) {
+              assistantMessage += content;
+              updateOptimisticMessage(assistantTempId, assistantMessage);
+            }
+          } catch (parseError) {
+            console.error('Error parsing SSE data:', parseError);
+          }
+        }
+      }
+    }
+
+    // Save final assistant message to DB
+    if (assistantMessage) {
+      await addMessage(conversationId, "assistant", assistantMessage);
+      
+      // Update conversation title if it's the first message
+      const activeConv = conversations.find(c => c.id === conversationId);
+      if (activeConv && !activeConv.title && messages.length === 0) {
+        const title = message.slice(0, 50) + (message.length > 50 ? "..." : "");
+        await updateConversationTitle(conversationId, title);
+      }
+    }
+  };
+
+  const handleOpenAIAssistant = async (
+    message: string,
+    files: Array<{name: string; url: string; type: string; size: number}> | undefined,
+    session: Session,
+    conversationId: string,
+    assistantTempId: string,
+    abortController: AbortController
+  ) => {
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/openai-assistant`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        },
+        body: JSON.stringify({ 
+          message, 
+          threadId, 
+          conversationId,
+          files: files || []
+        }),
+        signal: abortController.signal,
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Request failed');
+    }
+
+    const newThreadId = response.headers.get('X-Thread-Id');
+    if (newThreadId && newThreadId !== threadId) {
+      setThreadId(newThreadId);
+    }
+
+    // Parse SSE stream
+    const reader = response.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let assistantMessage = '';
+    let currentEvent = '';
+
+    if (!reader) throw new Error('No response body');
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          
+          if (data === '[DONE]') break;
+
+          try {
+            const eventData = JSON.parse(data);
+            
+            if (currentEvent === 'thread.message.delta') {
+              const content = eventData.delta?.content;
+              if (content && content[0]?.type === 'text') {
+                const textValue = content[0].text?.value;
+                if (textValue) {
+                  assistantMessage += textValue;
+                  updateOptimisticMessage(assistantTempId, assistantMessage);
+                }
+              }
+            } else if (currentEvent === 'thread.message.completed') {
+              const content = eventData.content;
+              if (content && content[0]?.type === 'text') {
+                assistantMessage = content[0].text.value;
+                updateOptimisticMessage(assistantTempId, assistantMessage);
+              }
+            } else if (currentEvent === 'thread.run.failed') {
+              const lastError = eventData.last_error;
+              throw new Error(`Assistant run failed: ${lastError?.message || 'Unknown error'}`);
+            }
+          } catch (parseError) {
+            console.error('Error parsing SSE data:', parseError);
+          }
+        }
+      }
+    }
+
+    // Save final assistant message to DB
+    if (assistantMessage) {
+      await addMessage(conversationId, "assistant", assistantMessage);
+      
+      // Update conversation title if it's the first message
+      const activeConv = conversations.find(c => c.id === conversationId);
+      if (activeConv && !activeConv.title && messages.length === 0) {
+        const title = message.slice(0, 50) + (message.length > 50 ? "..." : "");
+        await updateConversationTitle(conversationId, title);
+      }
     }
   };
 

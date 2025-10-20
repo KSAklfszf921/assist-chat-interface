@@ -2,3 +2,6 @@ project_id = "cvskbnrxuppbarkspfld"
 
 [functions.openai-assistant]
 verify_jwt = true
+
+[functions.chatgpt]
+verify_jwt = true

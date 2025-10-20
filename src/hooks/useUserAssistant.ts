@@ -10,6 +10,7 @@ interface UserAssistant {
 }
 
 const PREDEFINED_ASSISTANTS = [
+  { assistant_id: "chatgpt", name: "ChatGPT" },
   { assistant_id: "asst_0J4GuAbDQ53RnQUBKmuQ2rXz", name: "Övrigt" },
   { assistant_id: "asst_attpbFbLY1d3rcKAdc0LesaF", name: "Bedömning" },
   { assistant_id: "asst_OQr1CTfiVxXLNXWh6ahqeTle", name: "Läxa" },
