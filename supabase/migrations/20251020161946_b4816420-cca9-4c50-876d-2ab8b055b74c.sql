@@ -1,4 +1,3 @@
--- Create atomic rate limit check and increment function
 CREATE OR REPLACE FUNCTION public.check_and_increment_rate_limit(
   _user_id UUID,
   _endpoint TEXT,
