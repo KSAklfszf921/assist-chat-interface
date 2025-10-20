@@ -140,9 +140,7 @@ const Index = () => {
                   <p className="text-muted-foreground max-w-md">
                     {activeAssistant ? `Börja chatta med ${activeAssistant.name} genom att skriva ett meddelande nedan.` : "Laddar assistenter..."}
                   </p>
-                  {activeAssistant && <p className="text-sm text-muted-foreground">
-                      Byt assistent när som helst genom att använda väljaren ovan.
-                    </p>}
+                  {activeAssistant}
                 </div>
               </div> : <div className="divide-y">
                 {messages.map((message, index) => <ChatMessage key={index} role={message.role} content={message.content} />)}
@@ -162,7 +160,7 @@ const Index = () => {
       </div>
 
       {/* Input Area */}
-      <div className="border-t bg-card/50 backdrop-blur-sm">
+      <div className="border-t backdrop-blur-sm py-[50px] rounded-none bg-[#525244]/0">
         <div className="container mx-auto max-w-4xl p-4">
           <ChatInput onSendMessage={sendMessage} disabled={isLoading || !activeAssistant} />
         </div>
