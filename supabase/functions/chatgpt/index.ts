@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const ERROR_CODES = {
   NO_API_KEY: "ERR_NO_OPENAI_KEY",
@@ -8,6 +9,19 @@ const ERROR_CODES = {
   RATE_LIMIT_EXCEEDED: "ERR_RATE_LIMIT",
   OPENAI_API_ERROR: "ERR_OPENAI_API",
 } as const;
+
+const inputSchema = z.object({
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant', 'system']),
+    content: z.string().min(1, "Message cannot be empty").max(4000, "Message too long"),
+  })).min(1, "At least one message required").max(50, "Too many messages in conversation"),
+  conversationId: z.string().uuid("Invalid conversation ID format"),
+  model: z.enum([
+    'gpt-5-nano-2025-08-07',
+    'gpt-5-mini-2025-08-07',
+    'gpt-5-2025-08-07'
+  ]).optional(),
+});
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,23 +66,18 @@ serve(async (req) => {
       });
     }
 
-    const { messages, conversationId, model = "gpt-5-mini-2025-08-07" } = await req.json();
+    const body = await req.json();
+    const validationResult = inputSchema.safeParse(body);
 
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      console.error(ERROR_CODES.INVALID_INPUT, "Invalid messages format");
-      return new Response(JSON.stringify({ error: "Invalid request format" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!validationResult.success) {
+      console.error(ERROR_CODES.INVALID_INPUT, "Validation failed:", validationResult.error.errors);
+      return new Response(
+        JSON.stringify({ error: "Invalid request format" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
-    if (!conversationId) {
-      console.error(ERROR_CODES.INVALID_INPUT, "Missing conversationId");
-      return new Response(JSON.stringify({ error: "Invalid request format" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const { messages, conversationId, model = "gpt-5-mini-2025-08-07" } = validationResult.data;
 
     // Rate limiting
     const { data: rateLimitData, error: rateLimitError } = await supabaseClient.rpc(
