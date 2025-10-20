@@ -140,7 +140,6 @@ const Index = () => {
                   <p className="text-muted-foreground max-w-md">
                     {activeAssistant ? `Börja chatta med ${activeAssistant.name} genom att skriva ett meddelande nedan.` : "Laddar assistenter..."}
                   </p>
-                  {activeAssistant}
                 </div>
               </div> : <div className="divide-y">
                 {messages.map((message, index) => <ChatMessage key={index} role={message.role} content={message.content} />)}
