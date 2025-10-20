@@ -74,6 +74,12 @@ serve(async (req) => {
       message: z.string().min(1, "Message cannot be empty").max(4000, "Message too long"),
       threadId: z.string().regex(/^thread_[a-zA-Z0-9]+$/, "Invalid thread format").nullish(),
       conversationId: z.string().uuid().nullish(),
+      files: z.array(z.object({
+        name: z.string(),
+        url: z.string().url(),
+        type: z.string(),
+        size: z.number(),
+      })).optional(),
     });
 
     const body = await req.json();
@@ -87,7 +93,7 @@ serve(async (req) => {
       );
     }
 
-    const { message, threadId, conversationId } = validationResult.data;
+    const { message, threadId, conversationId, files } = validationResult.data;
 
     // Get user's active assistant from database
     const { data: assistantData, error: assistantError } = await supabase
@@ -169,7 +175,83 @@ serve(async (req) => {
       }
     }
 
-    // Add message to thread
+    // Process file attachments if present
+    let attachments: any[] = [];
+    if (files && files.length > 0) {
+      console.log(`Processing ${files.length} file attachments`);
+      
+      for (const file of files) {
+        try {
+          // Download file from Supabase Storage using service role
+          const fileUrl = new URL(file.url);
+          const pathMatch = fileUrl.pathname.match(/\/storage\/v1\/object\/public\/chat-attachments\/(.+)$/);
+          
+          if (!pathMatch) {
+            console.error('Invalid file URL format:', file.url);
+            continue;
+          }
+          
+          const filePath = pathMatch[1];
+          const { data: fileData, error: downloadError } = await supabase.storage
+            .from('chat-attachments')
+            .download(filePath);
+          
+          if (downloadError || !fileData) {
+            console.error('Error downloading file:', downloadError);
+            continue;
+          }
+          
+          // Upload file to OpenAI Files API
+          const formData = new FormData();
+          formData.append('file', fileData, file.name);
+          formData.append('purpose', 'assistants');
+          
+          const uploadResponse = await fetch('https://api.openai.com/v1/files', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            },
+            body: formData,
+          });
+          
+          if (!uploadResponse.ok) {
+            console.error('Error uploading file to OpenAI:', await uploadResponse.text());
+            continue;
+          }
+          
+          const uploadedFile = await uploadResponse.json();
+          console.log('File uploaded to OpenAI:', uploadedFile.id);
+          
+          // Determine tool type based on file type
+          const tools: any[] = [];
+          if (file.type === 'application/pdf' || file.type === 'text/plain' || file.type.includes('text')) {
+            tools.push({ type: 'file_search' });
+          }
+          if (file.type === 'text/csv' || file.type === 'application/json') {
+            tools.push({ type: 'code_interpreter' });
+          }
+          
+          attachments.push({
+            file_id: uploadedFile.id,
+            tools: tools.length > 0 ? tools : [{ type: 'file_search' }],
+          });
+          
+        } catch (fileError) {
+          console.error('Error processing file:', fileError);
+        }
+      }
+    }
+
+    // Add message to thread with attachments
+    const messagePayload: any = {
+      role: 'user',
+      content: message,
+    };
+    
+    if (attachments.length > 0) {
+      messagePayload.attachments = attachments;
+    }
+
     const messageResponse = await fetch(`https://api.openai.com/v1/threads/${currentThreadId}/messages`, {
       method: 'POST',
       headers: {
@@ -177,10 +259,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
         'OpenAI-Beta': 'assistants=v2',
       },
-      body: JSON.stringify({
-        role: 'user',
-        content: message,
-      }),
+      body: JSON.stringify(messagePayload),
     });
 
     if (!messageResponse.ok) {

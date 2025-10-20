@@ -9,6 +9,11 @@ export interface Message {
   content: string;
   created_at: string;
   metadata?: Record<string, any>;
+  attachments?: Array<{
+    name: string;
+    size: number;
+    type: string;
+  }>;
 }
 
 export const useConversationMessages = (conversationId: string | null) => {
@@ -54,14 +59,47 @@ export const useConversationMessages = (conversationId: string | null) => {
   const loadMessages = async (convId: string) => {
     try {
       setIsLoading(true);
-      const { data, error } = await supabase
+      
+      // Load messages
+      const { data: messagesData, error: messagesError } = await supabase
         .from("chat_messages")
         .select("*")
         .eq("conversation_id", convId)
         .order("created_at", { ascending: true });
 
-      if (error) throw error;
-      setMessages((data || []) as Message[]);
+      if (messagesError) throw messagesError;
+      
+      // Load attachments for all messages
+      const messageIds = (messagesData || []).map(m => m.id);
+      let attachmentsMap: Record<string, any[]> = {};
+      
+      if (messageIds.length > 0) {
+        const { data: attachmentsData, error: attachmentsError } = await supabase
+          .from("message_attachments")
+          .select("*")
+          .in("message_id", messageIds);
+        
+        if (!attachmentsError && attachmentsData) {
+          // Group attachments by message_id
+          attachmentsMap = attachmentsData.reduce((acc, att) => {
+            if (!acc[att.message_id]) acc[att.message_id] = [];
+            acc[att.message_id].push({
+              name: att.file_name,
+              size: att.file_size,
+              type: att.file_type,
+            });
+            return acc;
+          }, {} as Record<string, any[]>);
+        }
+      }
+      
+      // Combine messages with their attachments
+      const messagesWithAttachments = (messagesData || []).map(msg => ({
+        ...msg,
+        attachments: attachmentsMap[msg.id] || undefined,
+      })) as Message[];
+      
+      setMessages(messagesWithAttachments);
     } catch (error: any) {
       console.error("Error loading messages:", error);
       toast({

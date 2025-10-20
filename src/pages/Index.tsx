@@ -171,7 +171,7 @@ const Index = () => {
     });
   };
 
-  const handleSendMessage = async (message: string) => {
+  const handleSendMessage = async (message: string, files?: Array<{name: string; url: string; type: string; size: number}>) => {
     if (!activeConversationId || !user) return;
 
     // Client-side validation
@@ -195,9 +195,22 @@ const Index = () => {
 
     setIsStreamingResponse(true);
 
-    // Add user message to UI and DB
+    // Add user message to UI and DB with file metadata
     const userMessageId = addOptimisticMessage("user", message);
-    await addMessage(activeConversationId, "user", message);
+    const messageData = await addMessage(activeConversationId, "user", message);
+    
+    // If files are attached, save them to message_attachments table
+    if (files && files.length > 0 && messageData) {
+      for (const file of files) {
+        await supabase.from('message_attachments').insert({
+          message_id: messageData.id,
+          file_name: file.name,
+          file_url: file.url,
+          file_type: file.type,
+          file_size: file.size,
+        });
+      }
+    }
 
     // Add optimistic assistant message
     const assistantTempId = addOptimisticMessage("assistant", "");
@@ -226,7 +239,12 @@ const Index = () => {
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           },
-          body: JSON.stringify({ message, threadId, conversationId: activeConversationId }),
+          body: JSON.stringify({ 
+            message, 
+            threadId, 
+            conversationId: activeConversationId,
+            files: files || []
+          }),
           signal: abortController.signal,
         }
       );
