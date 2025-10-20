@@ -88,19 +88,22 @@ serve(async (req) => {
         });
     }
 
-    // Validate input schema (removed assistantId - will get from database)
+    // Validate input schema
     const inputSchema = z.object({
       message: z.string().min(1, "Message cannot be empty").max(4000, "Message too long"),
-      threadId: z.string().regex(/^thread_[a-zA-Z0-9]+$/, "Invalid thread format").optional(),
+      threadId: z.string().regex(/^thread_[a-zA-Z0-9]+$/, "Invalid thread format").nullish(),
     });
 
     const body = await req.json();
     const validationResult = inputSchema.safeParse(body);
     
     if (!validationResult.success) {
-      console.error('Input validation failed');
+      console.error('Input validation failed:', validationResult.error);
       return new Response(
-        JSON.stringify({ error: 'Invalid input parameters' }),
+        JSON.stringify({ 
+          error: 'Invalid input parameters',
+          details: validationResult.error.errors 
+        }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
