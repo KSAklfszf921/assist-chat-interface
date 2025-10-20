@@ -1,5 +1,6 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,18 +13,38 @@ serve(async (req) => {
   }
 
   try {
-    const { message, threadId, assistantId } = await req.json();
+    // Validate input schema
+    const inputSchema = z.object({
+      message: z.string().min(1, "Message cannot be empty").max(4000, "Message too long (max 4000 characters)"),
+      assistantId: z.string().regex(/^asst_[a-zA-Z0-9]+$/, "Invalid Assistant ID format"),
+      threadId: z.string().regex(/^thread_[a-zA-Z0-9]+$/, "Invalid Thread ID format").optional(),
+    });
+
+    const body = await req.json();
+    const validationResult = inputSchema.safeParse(body);
+    
+    if (!validationResult.success) {
+      console.error('Input validation failed:', validationResult.error.issues);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid input',
+          details: validationResult.error.issues[0].message
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        }
+      );
+    }
+
+    const { message, threadId, assistantId } = validationResult.data;
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
     if (!OPENAI_API_KEY) {
       throw new Error('OPENAI_API_KEY is not configured');
     }
 
-    if (!assistantId) {
-      throw new Error('Assistant ID is required');
-    }
-
-    console.log('Processing message:', { message, threadId, assistantId });
+    console.log('Processing request for assistant');
 
     // Create or use existing thread
     let currentThreadId = threadId;
@@ -45,7 +66,7 @@ serve(async (req) => {
 
       const thread = await threadResponse.json();
       currentThreadId = thread.id;
-      console.log('Created new thread:', currentThreadId);
+      console.log('Created new thread');
     }
 
     // Add message to thread
@@ -99,7 +120,7 @@ serve(async (req) => {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'X-Thread-Id': currentThreadId,
+        ...(currentThreadId ? { 'X-Thread-Id': currentThreadId } : {}),
       },
     });
 

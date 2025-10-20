@@ -1,4 +1,4 @@
 project_id = "cvskbnrxuppbarkspfld"
 
 [functions.openai-assistant]
-verify_jwt = false
+verify_jwt = true

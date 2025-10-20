@@ -28,7 +28,21 @@ export const useAssistantChat = (assistantId: string) => {
       setMessages((prev) => [...prev, { role: "user", content: message }]);
 
       try {
-        console.log('Sending message to assistant:', { message, threadId, assistantId });
+        console.log('Sending message to assistant');
+
+        // Get current session for authentication
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (!session) {
+          toast({
+            title: "Autentisering krävs",
+            description: "Du måste vara inloggad för att använda assistenten.",
+            variant: "destructive",
+          });
+          setMessages((prev) => prev.slice(0, -1));
+          setIsLoading(false);
+          return;
+        }
 
         const { data, error } = await supabase.functions.invoke('openai-assistant', {
           body: { 
