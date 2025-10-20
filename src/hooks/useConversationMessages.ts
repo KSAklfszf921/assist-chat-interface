@@ -39,10 +39,16 @@ export const useConversationMessages = (conversationId: string | null) => {
           (payload) => {
             console.log('New message received:', payload);
             setMessages((prev) => {
+              // Remove corresponding optimistic message if exists
+              const withoutTemp = prev.filter(m => 
+                !(m.id.startsWith('temp-') && m.content === payload.new.content && m.role === payload.new.role)
+              );
+              
               // Avoid duplicates
-              const exists = prev.some(m => m.id === payload.new.id);
+              const exists = withoutTemp.some(m => m.id === payload.new.id);
               if (exists) return prev;
-              return [...prev, payload.new as Message];
+              
+              return [...withoutTemp, payload.new as Message];
             });
           }
         )
@@ -138,7 +144,7 @@ export const useConversationMessages = (conversationId: string | null) => {
         .update({ last_message_at: new Date().toISOString() })
         .eq("id", convId);
 
-      setMessages((prev) => [...prev, data as Message]);
+      // Realtime subscription handles state update automatically
       return data as Message;
     } catch (error: any) {
       console.error("Error adding message:", error);
