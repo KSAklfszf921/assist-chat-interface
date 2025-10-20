@@ -59,9 +59,8 @@ const Index = () => {
       setIsCheckingAuth(false);
       if (!session) {
         navigate("/auth");
-      } else {
-        loadConversations(session.user.id);
       }
+      // Don't load old conversations - each session starts fresh
     });
     
     return () => subscription.unsubscribe();
