@@ -24,6 +24,7 @@ const Index = () => {
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [newConversationDialogOpen, setNewConversationDialogOpen] = useState(false);
   const [isStreamingResponse, setIsStreamingResponse] = useState(false);
+  const [openTabIds, setOpenTabIds] = useState<string[]>([]);
   
   const { activeAssistant, assistants } = useUserAssistant();
   const {
@@ -66,18 +67,7 @@ const Index = () => {
     return () => subscription.unsubscribe();
   }, [navigate, loadConversations]);
 
-  // Auto-create first conversation when assistant is selected and no active conversation exists
-  useEffect(() => {
-    if (activeAssistant && user && !activeConversationId && !isCheckingAuth) {
-      const existingConv = conversations.find(c => c.assistant_id === activeAssistant.assistant_id && !c.is_deleted);
-      if (!existingConv) {
-        console.log('Creating initial conversation for assistant:', activeAssistant.assistant_id);
-        handleCreateConversation(activeAssistant.assistant_id);
-      } else {
-        setActiveConversation(existingConv.id);
-      }
-    }
-  }, [activeAssistant, user, activeConversationId, conversations, isCheckingAuth]);
+  // Don't auto-create conversations on startup - let user initiate
 
   // Sync threadId when active conversation changes
   useEffect(() => {
@@ -129,6 +119,7 @@ const Index = () => {
     const conversation = await createConversation(user.id, assistantId, title);
     if (conversation) {
       setThreadId(null); // Reset thread for new conversation
+      setOpenTabIds(prev => [...prev, conversation.id]); // Add to open tabs
     }
     return conversation;
   };
@@ -145,6 +136,8 @@ const Index = () => {
       // Switch to existing conversation
       setActiveConversation(existingConversation.id);
       setThreadId(existingConversation.thread_id);
+      // Add to open tabs if not already there
+      setOpenTabIds(prev => prev.includes(existingConversation.id) ? prev : [...prev, existingConversation.id]);
       console.log('Switched to existing conversation:', existingConversation.id);
     } else {
       // Create new conversation for this assistant
@@ -158,6 +151,8 @@ const Index = () => {
 
   const handleDeleteConversation = async (conversationId: string) => {
     await deleteConversation(conversationId);
+    // Remove from open tabs
+    setOpenTabIds(prev => prev.filter(id => id !== conversationId));
   };
 
   const handleDeleteAllConversations = async () => {
@@ -381,6 +376,7 @@ const Index = () => {
       <ConversationTabs
         conversations={conversations}
         activeConversationId={activeConversationId}
+        openTabIds={openTabIds}
         onTabChange={setActiveConversation}
         onTabClose={handleDeleteConversation}
         onNewConversation={() => setNewConversationDialogOpen(true)}

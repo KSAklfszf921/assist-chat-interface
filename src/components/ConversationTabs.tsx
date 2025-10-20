@@ -7,6 +7,7 @@ import type { Conversation } from "@/hooks/useConversations";
 interface ConversationTabsProps {
   conversations: Conversation[];
   activeConversationId: string | null;
+  openTabIds: string[];
   onTabChange: (conversationId: string) => void;
   onTabClose: (conversationId: string) => void;
   onNewConversation: () => void;
@@ -15,6 +16,7 @@ interface ConversationTabsProps {
 export const ConversationTabs = ({
   conversations,
   activeConversationId,
+  openTabIds,
   onTabChange,
   onTabClose,
   onNewConversation,
@@ -24,9 +26,9 @@ export const ConversationTabs = ({
     return title.length > maxLength ? title.slice(0, maxLength) + "..." : title;
   };
 
-  // Only show conversations that are active or have been messaged
+  // Only show conversations that are explicitly opened in this session
   const activeConversations = conversations.filter(c => 
-    c.id === activeConversationId || c.last_message_at
+    openTabIds.includes(c.id)
   );
 
   if (activeConversations.length === 0) {
