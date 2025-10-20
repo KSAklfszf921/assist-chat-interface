@@ -211,20 +211,10 @@ serve(async (req) => {
           
           for (const file of files) {
             try {
-              // Download file from Supabase Storage using service role
-              const fileUrl = new URL(file.url);
-              const pathMatch = fileUrl.pathname.match(/\/storage\/v1\/object\/public\/chat-attachments\/(.+)$/) || 
-                                fileUrl.pathname.match(/\/chat-attachments\/(.+)$/);
-              
-              if (!pathMatch) {
-                console.error('Invalid file URL format:', file.url);
-                continue;
-              }
-              
-              const filePath = pathMatch[1];
+              // Download file from Supabase Storage using service role (file.url is the path)
               const { data: fileData, error: downloadError } = await supabase.storage
                 .from('chat-attachments')
-                .download(filePath);
+                .download(file.url);
               
               if (downloadError || !fileData) {
                 console.error('Error downloading file:', downloadError);
