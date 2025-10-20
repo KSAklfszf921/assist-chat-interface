@@ -40,6 +40,7 @@ const Index = () => {
   
   const scrollRef = useRef<HTMLDivElement>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
 
   // Session management
   useEffect(() => {
@@ -65,19 +66,48 @@ const Index = () => {
     return () => subscription.unsubscribe();
   }, [navigate, loadConversations]);
 
-  // Auto-create first conversation when assistant is selected
+  // Auto-create first conversation when assistant is selected for the first time
   useEffect(() => {
-    if (activeAssistant && user && conversations.length === 0) {
+    if (activeAssistant && user && conversations.length === 0 && !isCheckingAuth) {
+      console.log('Creating initial conversation for assistant:', activeAssistant.assistant_id);
       handleCreateConversation(activeAssistant.assistant_id);
     }
-  }, [activeAssistant, user, conversations.length]);
+  }, [activeAssistant, user, conversations.length, isCheckingAuth]);
 
-  // Auto scroll to bottom when new messages arrive
+  // Sync threadId when active conversation changes
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (activeConversationId) {
+      const activeConv = conversations.find(c => c.id === activeConversationId);
+      if (activeConv?.thread_id) {
+        setThreadId(activeConv.thread_id);
+      } else {
+        setThreadId(null);
+      }
     }
-  }, [messages]);
+  }, [activeConversationId, conversations]);
+
+  // Auto scroll to bottom when new messages arrive (but only if user is near bottom)
+  useEffect(() => {
+    if (scrollRef.current && shouldAutoScroll) {
+      const scrollElement = scrollRef.current;
+      const isNearBottom = 
+        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 100;
+      
+      if (isNearBottom || isStreamingResponse) {
+        scrollElement.scrollTop = scrollElement.scrollHeight;
+      }
+    }
+  }, [messages, isStreamingResponse, shouldAutoScroll]);
+
+  // Track user scroll position to determine if we should auto-scroll
+  const handleScroll = () => {
+    if (scrollRef.current) {
+      const scrollElement = scrollRef.current;
+      const isNearBottom = 
+        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight < 100;
+      setShouldAutoScroll(isNearBottom);
+    }
+  };
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -94,6 +124,30 @@ const Index = () => {
     const conversation = await createConversation(user.id, assistantId, title);
     if (conversation) {
       setThreadId(null); // Reset thread for new conversation
+    }
+    return conversation;
+  };
+
+  const handleAssistantChange = async (assistantId: string) => {
+    if (!user) return;
+    
+    // Check if there's already an open conversation for this assistant
+    const existingConversation = conversations.find(
+      (conv) => conv.assistant_id === assistantId && !conv.is_deleted
+    );
+    
+    if (existingConversation) {
+      // Switch to existing conversation
+      setActiveConversation(existingConversation.id);
+      setThreadId(existingConversation.thread_id);
+      console.log('Switched to existing conversation:', existingConversation.id);
+    } else {
+      // Create new conversation for this assistant
+      console.log('Creating new conversation for assistant:', assistantId);
+      const newConversation = await handleCreateConversation(assistantId);
+      if (newConversation) {
+        console.log('New conversation created:', newConversation.id);
+      }
     }
   };
 
@@ -305,7 +359,7 @@ const Index = () => {
             <h1 className="text-lg font-semibold">OpenAI Assistants</h1>
           </div>
           <div className="flex items-center gap-2">
-            <AssistantSelector />
+            <AssistantSelector onAssistantChange={handleAssistantChange} />
             <SettingsDrawer
               assistantId={activeAssistant?.assistant_id || null}
               assistantName={activeAssistant?.name || null}
@@ -329,7 +383,7 @@ const Index = () => {
 
       {/* Chat Area */}
       <div className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full" ref={scrollRef}>
+        <ScrollArea className="h-full" ref={scrollRef} onScrollCapture={handleScroll}>
           <div className="container mx-auto max-w-4xl">
             {!activeConversationId || messages.length === 0 ? (
               <div className="flex h-full min-h-[calc(100vh-250px)] items-center justify-center">

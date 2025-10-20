@@ -19,6 +19,33 @@ export const useConversationMessages = (conversationId: string | null) => {
   useEffect(() => {
     if (conversationId) {
       loadMessages(conversationId);
+      
+      // Subscribe to realtime updates for new messages
+      const channel = supabase
+        .channel(`messages:${conversationId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages',
+            filter: `conversation_id=eq.${conversationId}`
+          },
+          (payload) => {
+            console.log('New message received:', payload);
+            setMessages((prev) => {
+              // Avoid duplicates
+              const exists = prev.some(m => m.id === payload.new.id);
+              if (exists) return prev;
+              return [...prev, payload.new as Message];
+            });
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
     } else {
       setMessages([]);
     }

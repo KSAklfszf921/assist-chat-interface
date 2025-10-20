@@ -9,7 +9,11 @@ import {
 import { useUserAssistant } from "@/hooks/useUserAssistant";
 import { getAssistantIcon } from "@/lib/assistantIcons";
 
-export const AssistantSelector = () => {
+interface AssistantSelectorProps {
+  onAssistantChange?: (assistantId: string) => void;
+}
+
+export const AssistantSelector = ({ onAssistantChange }: AssistantSelectorProps = {}) => {
   const { assistants, activeAssistant, setActiveAssistant, isLoading } = useUserAssistant();
 
   if (isLoading) {
@@ -23,12 +27,20 @@ export const AssistantSelector = () => {
   }
 
   const handleValueChange = async (assistantId: string) => {
-    await setActiveAssistant(assistantId);
+    // Find the assistant by assistant_id (OpenAI assistant ID)
+    const assistant = assistants.find(a => a.assistant_id === assistantId);
+    if (assistant) {
+      await setActiveAssistant(assistant.id);
+      // Notify parent component with the assistant_id (OpenAI ID)
+      if (onAssistantChange) {
+        onAssistantChange(assistantId);
+      }
+    }
   };
 
   return (
     <Select
-      value={activeAssistant?.id}
+      value={activeAssistant?.assistant_id}
       onValueChange={handleValueChange}
     >
       <SelectTrigger className="w-[200px]">
@@ -43,7 +55,7 @@ export const AssistantSelector = () => {
       </SelectTrigger>
       <SelectContent>
         {assistants.map((assistant) => (
-          <SelectItem key={assistant.id} value={assistant.id}>
+          <SelectItem key={assistant.id} value={assistant.assistant_id}>
             <div className="flex items-center gap-2 w-full">
               {getAssistantIcon(assistant.name || "")}
               <span>{assistant.name}</span>
