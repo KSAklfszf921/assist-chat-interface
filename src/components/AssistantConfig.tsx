@@ -12,12 +12,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useUserAssistant } from "@/hooks/useUserAssistant";
+import { useToast } from "@/hooks/use-toast";
+import { z } from "zod";
+
+const assistantIdSchema = z.string().regex(/^asst_[a-zA-Z0-9]+$/, "Assistant ID must start with 'asst_' followed by alphanumeric characters");
 
 export const AssistantConfig = () => {
   const { assistant, saveAssistant } = useUserAssistant();
+  const { toast } = useToast();
   const [tempId, setTempId] = useState("");
   const [tempName, setTempName] = useState("");
   const [open, setOpen] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
     if (assistant) {
@@ -27,8 +33,24 @@ export const AssistantConfig = () => {
   }, [assistant]);
 
   const handleSave = async () => {
-    if (!tempId.trim()) return;
+    if (!tempId.trim()) {
+      setValidationError("Assistant ID is required");
+      return;
+    }
     
+    // Validate assistant ID format
+    const validation = assistantIdSchema.safeParse(tempId);
+    if (!validation.success) {
+      setValidationError(validation.error.errors[0].message);
+      toast({
+        title: "Invalid Format",
+        description: validation.error.errors[0].message,
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setValidationError(null);
     const success = await saveAssistant(tempId, tempName);
     if (success) {
       setOpen(false);
@@ -65,8 +87,18 @@ export const AssistantConfig = () => {
               id="assistant-id"
               placeholder="asst_..."
               value={tempId}
-              onChange={(e) => setTempId(e.target.value)}
+              onChange={(e) => {
+                setTempId(e.target.value);
+                setValidationError(null);
+              }}
+              className={validationError ? "border-destructive" : ""}
             />
+            {validationError && (
+              <p className="text-sm text-destructive">{validationError}</p>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Format: asst_ followed by alphanumeric characters
+            </p>
           </div>
           <Button onClick={handleSave} className="w-full">
             Spara
