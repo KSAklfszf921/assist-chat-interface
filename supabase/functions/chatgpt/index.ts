@@ -79,19 +79,26 @@ serve(async (req) => {
 
     const { messages, conversationId, model = "gpt-5-mini-2025-08-07" } = validationResult.data;
 
-    // Rate limiting
+    // Rate limiting - 20 requests per minute
+    const windowStart = new Date();
+    windowStart.setSeconds(0, 0); // Round down to start of current minute
+    
     const { data: rateLimitData, error: rateLimitError } = await supabaseClient.rpc(
-      "check_and_update_rate_limit",
+      "check_and_increment_rate_limit",
       {
-        p_user_id: user.id,
-        p_endpoint: "chatgpt",
-        p_max_requests: 20,
-        p_window_seconds: 60,
+        _user_id: user.id,
+        _endpoint: "chatgpt",
+        _window_start: windowStart.toISOString(),
+        _max_requests: 20,
       }
     );
 
     if (rateLimitError) {
       console.error("Rate limit check failed:", rateLimitError);
+      return new Response(JSON.stringify({ error: "Service error" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     if (!rateLimitData) {
