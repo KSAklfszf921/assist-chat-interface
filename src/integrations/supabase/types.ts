@@ -14,7 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      rate_limits: {
+        Row: {
+          endpoint: string
+          id: string
+          request_count: number
+          user_id: string
+          window_start: string
+        }
+        Insert: {
+          endpoint: string
+          id?: string
+          request_count?: number
+          user_id: string
+          window_start?: string
+        }
+        Update: {
+          endpoint?: string
+          id?: string
+          request_count?: number
+          user_id?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
+      user_assistants: {
+        Row: {
+          assistant_id: string
+          created_at: string | null
+          id: string
+          name: string | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          assistant_id: string
+          created_at?: string | null
+          id?: string
+          name?: string | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          assistant_id?: string
+          created_at?: string | null
+          id?: string
+          name?: string | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

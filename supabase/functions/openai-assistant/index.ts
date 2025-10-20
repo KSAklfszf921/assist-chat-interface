@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { z } from "https://deno.land/x/zod@v3.22.4/mod.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,38 +14,126 @@ serve(async (req) => {
   }
 
   try {
-    // Validate input schema
+    // Get authenticated user
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Authentication required' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Get user from JWT
+    const token = authHeader.replace('Bearer ', '');
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    
+    if (authError || !user) {
+      console.error('Authentication failed');
+      return new Response(
+        JSON.stringify({ error: 'Authentication failed' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Rate limiting: 20 requests per minute per user
+    const rateLimitWindow = 60000; // 1 minute in ms
+    const rateLimitMax = 20;
+    const now = new Date();
+    const windowStart = new Date(now.getTime() - rateLimitWindow);
+
+    // Clean up old rate limit entries
+    await supabase
+      .from('rate_limits')
+      .delete()
+      .lt('window_start', windowStart.toISOString());
+
+    // Check current rate
+    const { data: rateLimitData } = await supabase
+      .from('rate_limits')
+      .select('request_count')
+      .eq('user_id', user.id)
+      .eq('endpoint', 'openai-assistant')
+      .gte('window_start', windowStart.toISOString())
+      .single();
+
+    if (rateLimitData && rateLimitData.request_count >= rateLimitMax) {
+      console.error('Rate limit exceeded');
+      return new Response(
+        JSON.stringify({ error: 'Rate limit exceeded. Please try again later.' }),
+        { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Update rate limit counter
+    if (rateLimitData) {
+      await supabase
+        .from('rate_limits')
+        .update({ request_count: rateLimitData.request_count + 1 })
+        .eq('user_id', user.id)
+        .eq('endpoint', 'openai-assistant')
+        .gte('window_start', windowStart.toISOString());
+    } else {
+      await supabase
+        .from('rate_limits')
+        .insert({
+          user_id: user.id,
+          endpoint: 'openai-assistant',
+          request_count: 1,
+          window_start: now.toISOString()
+        });
+    }
+
+    // Validate input schema (removed assistantId - will get from database)
     const inputSchema = z.object({
-      message: z.string().min(1, "Message cannot be empty").max(4000, "Message too long (max 4000 characters)"),
-      assistantId: z.string().regex(/^asst_[a-zA-Z0-9]+$/, "Invalid Assistant ID format"),
-      threadId: z.string().regex(/^thread_[a-zA-Z0-9]+$/, "Invalid Thread ID format").optional(),
+      message: z.string().min(1, "Message cannot be empty").max(4000, "Message too long"),
+      threadId: z.string().regex(/^thread_[a-zA-Z0-9]+$/, "Invalid thread format").optional(),
     });
 
     const body = await req.json();
     const validationResult = inputSchema.safeParse(body);
     
     if (!validationResult.success) {
-      console.error('Input validation failed:', validationResult.error.issues);
+      console.error('Input validation failed');
       return new Response(
-        JSON.stringify({ 
-          error: 'Invalid input',
-          details: validationResult.error.issues[0].message
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        }
+        JSON.stringify({ error: 'Invalid input parameters' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { message, threadId, assistantId } = validationResult.data;
+    const { message, threadId } = validationResult.data;
+
+    // Get user's assistant from database
+    const { data: assistantData, error: assistantError } = await supabase
+      .from('user_assistants')
+      .select('assistant_id')
+      .eq('user_id', user.id)
+      .single();
+
+    if (assistantError || !assistantData) {
+      console.error('No assistant configured');
+      return new Response(
+        JSON.stringify({ error: 'No assistant configured. Please configure an assistant first.' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const assistantId = assistantData.assistant_id;
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
     if (!OPENAI_API_KEY) {
-      throw new Error('OPENAI_API_KEY is not configured');
+      console.error('API key not configured');
+      return new Response(
+        JSON.stringify({ error: 'Service configuration error' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log('Processing request for assistant');
+    console.log('Processing authenticated request');
 
     // Create or use existing thread
     let currentThreadId = threadId;
@@ -59,14 +148,16 @@ serve(async (req) => {
       });
 
       if (!threadResponse.ok) {
-        const error = await threadResponse.text();
-        console.error('Thread creation error:', error);
-        throw new Error(`Failed to create thread: ${error}`);
+        console.error('Thread creation failed');
+        return new Response(
+          JSON.stringify({ error: 'Failed to create conversation thread' }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
 
       const thread = await threadResponse.json();
       currentThreadId = thread.id;
-      console.log('Created new thread');
+      console.log('Thread created successfully');
     }
 
     // Add message to thread
@@ -84,12 +175,14 @@ serve(async (req) => {
     });
 
     if (!messageResponse.ok) {
-      const error = await messageResponse.text();
-      console.error('Message creation error:', error);
-      throw new Error(`Failed to add message: ${error}`);
+      console.error('Message creation failed');
+      return new Response(
+        JSON.stringify({ error: 'Failed to send message' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log('Message added to thread');
+    console.log('Message sent successfully');
 
     // Create run with streaming
     const runResponse = await fetch(`https://api.openai.com/v1/threads/${currentThreadId}/runs`, {
@@ -106,12 +199,14 @@ serve(async (req) => {
     });
 
     if (!runResponse.ok) {
-      const error = await runResponse.text();
-      console.error('Run creation error:', error);
-      throw new Error(`Failed to create run: ${error}`);
+      console.error('Run creation failed');
+      return new Response(
+        JSON.stringify({ error: 'Failed to start assistant response' }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
-    console.log('Streaming response started');
+    console.log('Response stream initiated');
 
     // Return the streaming response directly
     return new Response(runResponse.body, {
@@ -125,15 +220,10 @@ serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('Error in openai-assistant function:', error);
+    console.error('Unexpected error occurred');
     return new Response(
-      JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error',
-      }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      }
+      JSON.stringify({ error: 'An unexpected error occurred. Please try again.' }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
 });

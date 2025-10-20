@@ -6,10 +6,11 @@ import { ChatMessage } from "@/components/ChatMessage";
 import { ChatInput } from "@/components/ChatInput";
 import { AssistantConfig } from "@/components/AssistantConfig";
 import { useAssistantChat } from "@/hooks/useAssistantChat";
+import { useUserAssistant } from "@/hooks/useUserAssistant";
 
 const Index = () => {
-  const [assistantId, setAssistantId] = useState("");
-  const { messages, isLoading, sendMessage, clearChat } = useAssistantChat(assistantId);
+  const { assistant, isLoading: isLoadingAssistant } = useUserAssistant();
+  const { messages, isLoading, sendMessage, clearChat } = useAssistantChat();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Auto scroll to bottom when new messages arrive
@@ -31,7 +32,7 @@ const Index = () => {
             <div>
               <h1 className="text-lg font-semibold">OpenAI Assistant</h1>
               <p className="text-xs text-muted-foreground">
-                {assistantId ? `ID: ${assistantId.substring(0, 15)}...` : "Ingen assistent konfigurerad"}
+                {isLoadingAssistant ? "Laddar..." : assistant ? `${assistant.name || assistant.assistant_id.substring(0, 15)}...` : "Ingen assistent konfigurerad"}
               </p>
             </div>
           </div>
@@ -44,10 +45,7 @@ const Index = () => {
             >
               <Trash2 className="h-4 w-4" />
             </Button>
-            <AssistantConfig
-              assistantId={assistantId}
-              onAssistantIdChange={setAssistantId}
-            />
+            <AssistantConfig />
           </div>
         </div>
       </header>
@@ -64,7 +62,7 @@ const Index = () => {
                   </div>
                   <h2 className="text-2xl font-semibold">Välkommen!</h2>
                   <p className="text-muted-foreground max-w-md">
-                    {assistantId
+                    {assistant
                       ? "Börja chatta med din OpenAI Assistant genom att skriva ett meddelande nedan."
                       : "Konfigurera din Assistant ID genom att klicka på inställningsikonen ovan."}
                   </p>
@@ -100,7 +98,7 @@ const Index = () => {
       {/* Input Area */}
       <div className="border-t bg-card/50 backdrop-blur-sm">
         <div className="container mx-auto max-w-4xl p-4">
-          <ChatInput onSendMessage={sendMessage} disabled={isLoading || !assistantId} />
+          <ChatInput onSendMessage={sendMessage} disabled={isLoading || !assistant} />
         </div>
       </div>
     </div>

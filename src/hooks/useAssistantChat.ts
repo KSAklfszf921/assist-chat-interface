@@ -7,7 +7,7 @@ interface Message {
   content: string;
 }
 
-export const useAssistantChat = (assistantId: string) => {
+export const useAssistantChat = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -15,14 +15,6 @@ export const useAssistantChat = (assistantId: string) => {
 
   const sendMessage = useCallback(
     async (message: string) => {
-      if (!assistantId) {
-        toast({
-          title: "Fel",
-          description: "Ingen Assistant ID konfigurerad. Öppna inställningar för att ange ett ID.",
-          variant: "destructive",
-        });
-        return;
-      }
 
       setIsLoading(true);
       setMessages((prev) => [...prev, { role: "user", content: message }]);
@@ -47,8 +39,7 @@ export const useAssistantChat = (assistantId: string) => {
         const { data, error } = await supabase.functions.invoke('openai-assistant', {
           body: { 
             message, 
-            threadId,
-            assistantId 
+            threadId
           },
         });
 
@@ -98,7 +89,7 @@ export const useAssistantChat = (assistantId: string) => {
         setIsLoading(false);
       }
     },
-    [assistantId, threadId, toast]
+    [threadId, toast]
   );
 
   const clearChat = useCallback(() => {
