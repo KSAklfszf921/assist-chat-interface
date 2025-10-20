@@ -77,9 +77,12 @@ export const useFileUpload = () => {
       if (error) throw error;
 
       // Hämta publik URL
-      const { data: { publicUrl } } = supabase.storage
+      // Use signed URL for security (expires in 1 hour)
+      const { data: signedUrlData, error: signedUrlError } = await supabase.storage
         .from('chat-attachments')
-        .getPublicUrl(data.path);
+        .createSignedUrl(data.path, 3600);
+
+      if (signedUrlError) throw signedUrlError;
 
       setUploadProgress(100);
 
@@ -90,7 +93,7 @@ export const useFileUpload = () => {
 
       return {
         name: file.name,
-        url: publicUrl,
+        url: data.path, // Store path instead of URL for security
         type: file.type,
         size: file.size,
       };

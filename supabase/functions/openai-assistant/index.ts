@@ -175,70 +175,119 @@ serve(async (req) => {
       }
     }
 
-    // Process file attachments if present
-    let attachments: any[] = [];
+    // Process file attachments - create vector store for file search
+    let vectorStoreId: string | null = null;
+    
     if (files && files.length > 0) {
-      console.log(`Processing ${files.length} file attachments`);
+      console.log('Processing file attachments with vector store:', files.length);
       
-      for (const file of files) {
-        try {
-          // Download file from Supabase Storage using service role
-          const fileUrl = new URL(file.url);
-          const pathMatch = fileUrl.pathname.match(/\/storage\/v1\/object\/public\/chat-attachments\/(.+)$/);
+      try {
+        // Create a vector store for this conversation if files are provided
+        const vectorStoreResponse = await fetch('https://api.openai.com/v1/vector_stores', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json',
+            'OpenAI-Beta': 'assistants=v2',
+          },
+          body: JSON.stringify({
+            name: `Conversation ${conversationId}`,
+            expires_after: {
+              anchor: 'last_active_at',
+              days: 7
+            }
+          }),
+        });
+
+        if (!vectorStoreResponse.ok) {
+          console.error('Error creating vector store:', await vectorStoreResponse.text());
+        } else {
+          const vectorStore = await vectorStoreResponse.json();
+          vectorStoreId = vectorStore.id;
+          console.log('Vector store created:', vectorStoreId);
+
+          // Upload files to vector store in batch
+          const fileUploads = [];
           
-          if (!pathMatch) {
-            console.error('Invalid file URL format:', file.url);
-            continue;
+          for (const file of files) {
+            try {
+              // Download file from Supabase Storage using service role
+              const fileUrl = new URL(file.url);
+              const pathMatch = fileUrl.pathname.match(/\/storage\/v1\/object\/public\/chat-attachments\/(.+)$/) || 
+                                fileUrl.pathname.match(/\/chat-attachments\/(.+)$/);
+              
+              if (!pathMatch) {
+                console.error('Invalid file URL format:', file.url);
+                continue;
+              }
+              
+              const filePath = pathMatch[1];
+              const { data: fileData, error: downloadError } = await supabase.storage
+                .from('chat-attachments')
+                .download(filePath);
+              
+              if (downloadError || !fileData) {
+                console.error('Error downloading file:', downloadError);
+                continue;
+              }
+
+              // Upload to OpenAI Files API
+              const formData = new FormData();
+              formData.append('file', fileData, file.name);
+              formData.append('purpose', 'assistants');
+
+              const uploadResponse = await fetch('https://api.openai.com/v1/files', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                  'OpenAI-Beta': 'assistants=v2',
+                },
+                body: formData,
+              });
+
+              if (!uploadResponse.ok) {
+                console.error('Error uploading file to OpenAI:', await uploadResponse.text());
+                continue;
+              }
+
+              const uploadedFile = await uploadResponse.json();
+              console.log('File uploaded to OpenAI:', uploadedFile.id);
+              fileUploads.push(uploadedFile.id);
+
+              // Store the OpenAI file ID in our database
+              await supabase
+                .from('message_attachments')
+                .update({ openai_file_id: uploadedFile.id })
+                .eq('file_url', file.url);
+
+            } catch (error) {
+              console.error('Error processing file:', error);
+            }
           }
-          
-          const filePath = pathMatch[1];
-          const { data: fileData, error: downloadError } = await supabase.storage
-            .from('chat-attachments')
-            .download(filePath);
-          
-          if (downloadError || !fileData) {
-            console.error('Error downloading file:', downloadError);
-            continue;
+
+          // Add files to vector store in batch
+          if (fileUploads.length > 0) {
+            const batchResponse = await fetch(`https://api.openai.com/v1/vector_stores/${vectorStoreId}/file_batches`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+                'OpenAI-Beta': 'assistants=v2',
+              },
+              body: JSON.stringify({
+                file_ids: fileUploads
+              }),
+            });
+
+            if (!batchResponse.ok) {
+              console.error('Error adding files to vector store:', await batchResponse.text());
+            } else {
+              console.log('Files added to vector store in batch');
+            }
           }
-          
-          // Upload file to OpenAI Files API
-          const formData = new FormData();
-          formData.append('file', fileData, file.name);
-          formData.append('purpose', 'assistants');
-          
-          const uploadResponse = await fetch('https://api.openai.com/v1/files', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${OPENAI_API_KEY}`,
-            },
-            body: formData,
-          });
-          
-          if (!uploadResponse.ok) {
-            console.error('Error uploading file to OpenAI:', await uploadResponse.text());
-            continue;
-          }
-          
-          const uploadedFile = await uploadResponse.json();
-          console.log('File uploaded to OpenAI:', uploadedFile.id);
-          
-          // Determine tool type based on file type
-          const tools: any[] = [];
-          if (file.type === 'application/pdf' || file.type === 'text/plain' || file.type.includes('text')) {
-            tools.push({ type: 'file_search' });
-          }
-          if (file.type === 'text/csv' || file.type === 'application/json') {
-            tools.push({ type: 'code_interpreter' });
-          }
-          
-          attachments.push({
-            file_id: uploadedFile.id,
-            tools: tools.length > 0 ? tools : [{ type: 'file_search' }],
-          });
-          
-        } catch (fileError) {
-          console.error('Error processing file:', fileError);
         }
+      } catch (error) {
+        console.error('Error setting up vector store:', error);
       }
     }
 
@@ -247,10 +296,6 @@ serve(async (req) => {
       role: 'user',
       content: message,
     };
-    
-    if (attachments.length > 0) {
-      messagePayload.attachments = attachments;
-    }
 
     const messageResponse = await fetch(`https://api.openai.com/v1/threads/${currentThreadId}/messages`, {
       method: 'POST',
@@ -280,6 +325,15 @@ serve(async (req) => {
       assistant_id: assistantId,
       stream: true,
     };
+
+    // Add vector store to tool resources if files were uploaded
+    if (vectorStoreId) {
+      runParams.tool_resources = {
+        file_search: {
+          vector_store_ids: [vectorStoreId]
+        }
+      };
+    }
 
     if (additionalInstructions) {
       runParams.additional_instructions = additionalInstructions;

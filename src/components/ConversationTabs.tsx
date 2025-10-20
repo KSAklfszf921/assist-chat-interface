@@ -45,20 +45,22 @@ export const ConversationTabs = ({
                 <TabsTrigger
                   key={conv.id}
                   value={conv.id}
-                  className="relative group px-4"
+                  className="relative group px-4 flex items-center gap-2"
                 >
                   <span className="max-w-[150px] truncate">
                     {truncateTitle(conv.title)}
                   </span>
-                  <button
+                  <span
                     onClick={(e) => {
                       e.stopPropagation();
                       onTabClose(conv.id);
                     }}
-                    className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer hover:bg-destructive/10 rounded p-0.5"
+                    role="button"
+                    aria-label="Stäng konversation"
                   >
                     <X className="h-3 w-3" />
-                  </button>
+                  </span>
                 </TabsTrigger>
               ))}
             </TabsList>

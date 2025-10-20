@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Sparkles, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { SettingsDrawer } from "@/components/SettingsDrawer";
 import { useConversations } from "@/hooks/useConversations";
 import { useConversationMessages } from "@/hooks/useConversationMessages";
 import { useUserAssistant } from "@/hooks/useUserAssistant";
+import { useThrottledCallback } from "@/hooks/useOptimizedCallbacks";
 import { supabase } from "@/integrations/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
 import { useToast } from "@/hooks/use-toast";
@@ -103,16 +104,16 @@ const Index = () => {
     }
   };
 
-  const handleSignOut = async () => {
+  const handleSignOut = useCallback(async () => {
     await supabase.auth.signOut();
     toast({
       title: "Signed out",
       description: "You have been signed out successfully.",
     });
     navigate("/auth");
-  };
+  }, [navigate, toast]);
 
-  const handleCreateConversation = async (assistantId: string, title?: string) => {
+  const handleCreateConversation = useCallback(async (assistantId: string, title?: string) => {
     if (!user) return;
     
     const conversation = await createConversation(user.id, assistantId, title);
@@ -121,9 +122,9 @@ const Index = () => {
       setOpenTabIds(prev => [...prev, conversation.id]); // Add to open tabs
     }
     return conversation;
-  };
+  }, [user, createConversation]);
 
-  const handleAssistantChange = async (assistantId: string) => {
+  const handleAssistantChange = useCallback(async (assistantId: string) => {
     if (!user) return;
     
     // Check if there's already an open conversation for this assistant
@@ -146,15 +147,15 @@ const Index = () => {
         console.log('New conversation created:', newConversation.id);
       }
     }
-  };
+  }, [user, conversations, setActiveConversation, handleCreateConversation]);
 
-  const handleDeleteConversation = async (conversationId: string) => {
+  const handleDeleteConversation = useCallback(async (conversationId: string) => {
     await deleteConversation(conversationId);
     // Remove from open tabs
     setOpenTabIds(prev => prev.filter(id => id !== conversationId));
-  };
+  }, [deleteConversation]);
 
-  const handleDeleteAllConversations = async () => {
+  const handleDeleteAllConversations = useCallback(async () => {
     if (!activeAssistant) return;
     
     const assistantConversations = conversations.filter(
@@ -169,7 +170,7 @@ const Index = () => {
       title: "Alla konversationer raderade",
       description: `Raderade ${assistantConversations.length} konversationer för ${activeAssistant.name}`,
     });
-  };
+  }, [activeAssistant, conversations, deleteConversation, toast]);
 
   const handleSendMessage = async (message: string, files?: Array<{name: string; url: string; type: string; size: number}>) => {
     if (!activeConversationId || !user) return;
