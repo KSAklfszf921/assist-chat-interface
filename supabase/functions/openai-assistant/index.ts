@@ -73,6 +73,7 @@ serve(async (req) => {
     const inputSchema = z.object({
       message: z.string().min(1, "Message cannot be empty").max(4000, "Message too long"),
       threadId: z.string().regex(/^thread_[a-zA-Z0-9]+$/, "Invalid thread format").nullish(),
+      conversationId: z.string().uuid().nullish(),
     });
 
     const body = await req.json();
@@ -86,7 +87,7 @@ serve(async (req) => {
       );
     }
 
-    const { message, threadId } = validationResult.data;
+    const { message, threadId, conversationId } = validationResult.data;
 
     // Get user's active assistant from database
     const { data: assistantData, error: assistantError } = await supabase
@@ -115,7 +116,26 @@ serve(async (req) => {
       );
     }
 
-    console.log('Processing authenticated request');
+    // Get assistant settings from database
+    const { data: settingsData } = await supabase
+      .from('assistant_settings')
+      .select('*')
+      .eq('user_id', user.id)
+      .eq('assistant_id', assistantId)
+      .maybeSingle();
+
+    const settings = settingsData || {
+      enable_function_calling: true,
+      enable_web_search: false,
+      temperature: null,
+      max_tokens: null,
+      custom_instructions: null,
+    };
+
+    console.log('Processing authenticated request with settings:', {
+      function_calling: settings.enable_function_calling,
+      web_search: settings.enable_web_search,
+    });
 
     // Create or use existing thread
     let currentThreadId = threadId;
@@ -140,6 +160,15 @@ serve(async (req) => {
       const thread = await threadResponse.json();
       currentThreadId = thread.id;
       console.log('Thread created successfully');
+
+      // Update conversation with thread_id if conversationId is provided
+      if (conversationId) {
+        await supabase
+          .from('chat_conversations')
+          .update({ thread_id: currentThreadId })
+          .eq('id', conversationId)
+          .eq('user_id', user.id);
+      }
     }
 
     // Add message to thread
@@ -166,6 +195,27 @@ serve(async (req) => {
 
     console.log('Message sent successfully');
 
+    // Build additional instructions from custom settings
+    let additionalInstructions = settings.custom_instructions || '';
+
+    // Prepare run parameters
+    const runParams: any = {
+      assistant_id: assistantId,
+      stream: true,
+    };
+
+    if (additionalInstructions) {
+      runParams.additional_instructions = additionalInstructions;
+    }
+
+    if (settings.temperature !== null && settings.temperature !== undefined) {
+      runParams.temperature = settings.temperature;
+    }
+
+    if (settings.max_tokens !== null && settings.max_tokens !== undefined) {
+      runParams.max_completion_tokens = settings.max_tokens;
+    }
+
     // Create run with streaming
     const runResponse = await fetch(`https://api.openai.com/v1/threads/${currentThreadId}/runs`, {
       method: 'POST',
@@ -174,10 +224,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
         'OpenAI-Beta': 'assistants=v2',
       },
-      body: JSON.stringify({
-        assistant_id: assistantId,
-        stream: true,
-      }),
+      body: JSON.stringify(runParams),
     });
 
     if (!runResponse.ok) {
