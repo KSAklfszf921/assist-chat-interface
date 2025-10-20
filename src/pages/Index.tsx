@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Trash2, Sparkles } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Trash2, Sparkles, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMessage } from "@/components/ChatMessage";
@@ -7,11 +8,56 @@ import { ChatInput } from "@/components/ChatInput";
 import { AssistantConfig } from "@/components/AssistantConfig";
 import { useAssistantChat } from "@/hooks/useAssistantChat";
 import { useUserAssistant } from "@/hooks/useUserAssistant";
+import { supabase } from "@/integrations/supabase/client";
+import { User, Session } from "@supabase/supabase-js";
+import { useToast } from "@/hooks/use-toast";
 
 const Index = () => {
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const { assistant, isLoading: isLoadingAssistant } = useUserAssistant();
   const { messages, isLoading, sendMessage, clearChat } = useAssistantChat();
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Session management
+  useEffect(() => {
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (!session) {
+          navigate("/auth");
+        }
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      setIsCheckingAuth(false);
+      
+      if (!session) {
+        navigate("/auth");
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    toast({
+      title: "Signed out",
+      description: "You have been signed out successfully.",
+    });
+    navigate("/auth");
+  };
 
   // Auto scroll to bottom when new messages arrive
   useEffect(() => {
@@ -19,6 +65,25 @@ const Index = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gradient-to-b from-background to-muted/20">
+        <div className="text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent mb-4">
+            <Sparkles className="h-6 w-6 text-white animate-pulse" />
+          </div>
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If no session after check, don't render (will redirect)
+  if (!session || !user) {
+    return null;
+  }
 
   return (
     <div className="flex h-screen flex-col bg-gradient-to-b from-background to-muted/20">
@@ -46,6 +111,13 @@ const Index = () => {
               <Trash2 className="h-4 w-4" />
             </Button>
             <AssistantConfig />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={handleSignOut}
+            >
+              <LogOut className="h-4 w-4" />
+            </Button>
           </div>
         </div>
       </header>
